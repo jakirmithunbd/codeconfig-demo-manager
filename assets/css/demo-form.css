@@ -1,0 +1,217 @@
+/* ============================================================
+   CodeConfig Demo Manager — Front-end form styles
+   ============================================================ */
+
+:root {
+    --ccdemo-primary:   #4F46E5;
+    --ccdemo-primary-d: #4338CA;
+    --ccdemo-success:   #16a34a;
+    --ccdemo-error:     #dc2626;
+    --ccdemo-border:    #e5e7eb;
+    --ccdemo-bg:        #f9fafb;
+    --ccdemo-text:      #111827;
+    --ccdemo-muted:     #6b7280;
+    --ccdemo-radius:    10px;
+    --ccdemo-shadow:    0 4px 24px rgba(0,0,0,.07);
+}
+
+/* Wrapper */
+.ccdemo-wrap {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 48px 40px;
+    background: #fff;
+    border-radius: var(--ccdemo-radius);
+    box-shadow: var(--ccdemo-shadow);
+    border: 1px solid var(--ccdemo-border);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Step transitions */
+.ccdemo-hidden { display: none !important; }
+
+.ccdemo-title {
+    margin: 0 0 8px;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--ccdemo-text);
+    line-height: 1.25;
+}
+
+.ccdemo-subtitle {
+    margin: 0 0 32px;
+    font-size: 15px;
+    color: var(--ccdemo-muted);
+    line-height: 1.6;
+}
+
+/* ── Product grid ── */
+.ccdemo-products {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin-top: 8px;
+}
+
+.ccdemo-product-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px 16px;
+    background: var(--ccdemo-bg);
+    border: 2px solid var(--ccdemo-border);
+    border-radius: var(--ccdemo-radius);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ccdemo-text);
+    cursor: pointer;
+    transition: border-color .2s, background .2s, transform .15s;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.ccdemo-product-btn:hover,
+.ccdemo-product-btn:focus-visible {
+    border-color: var(--ccdemo-primary);
+    background: #eef2ff;
+    transform: translateY(-2px);
+    outline: none;
+}
+
+.ccdemo-product-btn.selected {
+    border-color: var(--ccdemo-primary);
+    background: #eef2ff;
+    color: var(--ccdemo-primary);
+}
+
+/* ── Lead form ── */
+.ccdemo-back-btn {
+    background: none;
+    border: none;
+    color: var(--ccdemo-primary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0 0 20px;
+    display: inline-block;
+}
+.ccdemo-back-btn:hover { text-decoration: underline; }
+
+.ccdemo-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+@media (max-width: 520px) {
+    .ccdemo-wrap { padding: 28px 20px; }
+    .ccdemo-field-row { grid-template-columns: 1fr; }
+}
+
+.ccdemo-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ccdemo-field label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ccdemo-text);
+}
+
+.ccdemo-field label span {
+    color: var(--ccdemo-error);
+    margin-left: 2px;
+}
+
+.ccdemo-field input {
+    padding: 10px 14px;
+    border: 1.5px solid var(--ccdemo-border);
+    border-radius: 7px;
+    font-size: 14px;
+    color: var(--ccdemo-text);
+    background: #fff;
+    transition: border-color .2s;
+    outline: none;
+}
+
+.ccdemo-field input:focus {
+    border-color: var(--ccdemo-primary);
+    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+}
+
+.ccdemo-field input.input-error {
+    border-color: var(--ccdemo-error);
+}
+
+/* Error message */
+.ccdemo-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: var(--ccdemo-error);
+    border-radius: 7px;
+    padding: 12px 16px;
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+/* Submit button */
+.ccdemo-submit-btn {
+    width: 100%;
+    padding: 14px 24px;
+    background: var(--ccdemo-primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: background .2s, transform .15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.ccdemo-submit-btn:hover  { background: var(--ccdemo-primary-d); }
+.ccdemo-submit-btn:active { transform: scale(.98); }
+.ccdemo-submit-btn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* Spinner */
+.ccdemo-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255,255,255,.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: ccdemo-spin .7s linear infinite;
+}
+@keyframes ccdemo-spin { to { transform: rotate(360deg); } }
+
+/* Privacy note */
+.ccdemo-privacy {
+    margin: 12px 0 0;
+    font-size: 12px;
+    color: var(--ccdemo-muted);
+    text-align: center;
+    line-height: 1.5;
+}
+
+/* ── Success step ── */
+#ccdemo-step-3 { text-align: center; }
+
+.ccdemo-success-icon {
+    width: 64px;
+    height: 64px;
+    background: #dcfce7;
+    color: var(--ccdemo-success);
+    border-radius: 50%;
+    font-size: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+    font-weight: 700;
+}

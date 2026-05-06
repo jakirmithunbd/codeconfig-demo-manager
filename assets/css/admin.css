@@ -1,0 +1,54 @@
+/* CodeConfig Demo Manager — Admin styles */
+
+.ccdemo-admin-wrap { max-width: 1200px; }
+
+/* Stats bar */
+.ccdemo-stats {
+    display: flex;
+    gap: 16px;
+    margin: 16px 0 24px;
+    flex-wrap: wrap;
+}
+
+.ccdemo-stat {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px 24px;
+    text-align: center;
+    min-width: 90px;
+}
+
+.ccdemo-stat span {
+    display: block;
+    font-size: 28px;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1;
+    margin-bottom: 4px;
+}
+
+.ccdemo-stat { color: #6b7280; font-size: 13px; }
+.stat-active  span { color: #16a34a; }
+.stat-pending span { color: #d97706; }
+.stat-expired span { color: #9ca3af; }
+
+/* Badge pills */
+.ccdemo-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.badge-active  { background: #dcfce7; color: #16a34a; }
+.badge-pending { background: #fef9c3; color: #ca8a04; }
+.badge-expired { background: #f3f4f6; color: #9ca3af; }
+
+/* Expired row dim */
+.ccdemo-row-expired td { opacity: .55; }
+
+/* Sessions table */
+.ccdemo-sessions-table th,
+.ccdemo-sessions-table td { vertical-align: top; padding: 10px 12px; }
