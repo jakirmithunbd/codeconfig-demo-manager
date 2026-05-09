@@ -1,102 +1,122 @@
 <?php
+/**
+ * WP-Cron cleanup — runs on demo subdomains. Compatible with PHP 7.4+.
+ */
 defined( 'ABSPATH' ) || exit;
 
 class CCDemo_Cron {
 
     const HOOK = 'ccdemo_cleanup';
 
-    /**
-     * Register the WP-Cron event on plugin activation.
-     */
-    public static function schedule(): void {
+    /* ------------------------------------------------------------------
+     * Lifecycle
+     * ------------------------------------------------------------------ */
+
+    public static function schedule() {
         if ( ! wp_next_scheduled( self::HOOK ) ) {
             wp_schedule_event( time(), 'hourly', self::HOOK );
         }
-        add_action( self::HOOK, [ self::class, 'cleanup_expired' ] );
     }
 
-    /**
-     * Remove the cron event on plugin deactivation.
-     */
-    public static function unschedule(): void {
-        $timestamp = wp_next_scheduled( self::HOOK );
-        if ( $timestamp ) {
-            wp_unschedule_event( $timestamp, self::HOOK );
+    public static function unschedule() {
+        $ts = wp_next_scheduled( self::HOOK );
+        if ( $ts ) {
+            wp_unschedule_event( $ts, self::HOOK );
         }
     }
 
-    /**
-     * Main cleanup routine — called hourly by WP-Cron.
-     * Finds expired sessions, deletes the temp WP user, and marks the session expired.
-     */
-    public static function cleanup_expired(): void {
+    /* ------------------------------------------------------------------
+     * Cleanup routine
+     * ------------------------------------------------------------------ */
+
+    public static function cleanup_expired() {
         $sessions = CCDemo_DB::get_expired_sessions();
+        $count    = 0;
 
         foreach ( $sessions as $session ) {
             self::delete_demo_user( (int) $session->user_id );
-            CCDemo_DB::update_session( (int) $session->id, [
+            CCDemo_DB::update_session( (int) $session->id, array(
                 'status'  => 'expired',
                 'user_id' => 0,
-            ] );
+            ) );
+            $count++;
         }
 
-        if ( count( $sessions ) ) {
-            self::log( sprintf( 'Cleaned up %d expired demo session(s).', count( $sessions ) ) );
+        if ( $count ) {
+            self::log( "Cleanup: {$count} expired session(s) processed." );
+            do_action( 'ccdemo_after_cleanup', $count );
         }
     }
 
-    /**
-     * Delete a single demo WP user (and all their meta / sessions).
-     * Reassigns any content to the admin user so nothing is orphaned.
-     */
-    public static function delete_demo_user( int $user_id ): void {
+    /* ------------------------------------------------------------------
+     * Delete a single demo WP user
+     *
+     * @param  int  $user_id
+     * @return bool
+     * ------------------------------------------------------------------ */
+
+    public static function delete_demo_user( $user_id ) {
+        $user_id = (int) $user_id;
         if ( ! $user_id ) {
-            return;
+            return false;
         }
 
         require_once ABSPATH . 'wp-admin/includes/user.php';
 
-        // Double-check the user actually has the demo role before deleting
         $user = get_user_by( 'id', $user_id );
         if ( ! $user ) {
-            return;
+            return false;
         }
 
+        // Safety guard — never delete non-demo users
         if ( ! in_array( 'ccdemo_user', (array) $user->roles, true ) ) {
-            // Safety guard — never delete non-demo users
-            self::log( "Skipped user #{$user_id} — not a demo user." );
-            return;
+            self::log( "SKIPPED user #{$user_id}: not a demo user." );
+            return false;
         }
 
         $reassign_to = (int) get_option( 'ccdemo_reassign_user', 1 );
-        wp_delete_user( $user_id, $reassign_to );
 
+        // Destroy any active auth sessions before deleting the account
+        WP_Session_Tokens::get_instance( $user_id )->destroy_all();
+
+        wp_delete_user( $user_id, $reassign_to );
         self::log( "Deleted demo user #{$user_id}." );
+
+        return true;
     }
 
-    /**
-     * Allow manually triggering cleanup from the admin.
-     */
-    public static function run_manual_cleanup(): int {
+    /* ------------------------------------------------------------------
+     * Manual cleanup (admin button)
+     *
+     * @return int Number of sessions cleaned up.
+     * ------------------------------------------------------------------ */
+
+    public static function run_manual_cleanup() {
         $sessions = CCDemo_DB::get_expired_sessions();
+        $count    = 0;
+
         foreach ( $sessions as $session ) {
             self::delete_demo_user( (int) $session->user_id );
-            CCDemo_DB::update_session( (int) $session->id, [
+            CCDemo_DB::update_session( (int) $session->id, array(
                 'status'  => 'expired',
                 'user_id' => 0,
-            ] );
+            ) );
+            $count++;
         }
-        return count( $sessions );
+
+        return $count;
     }
 
     /**
-     * Delete a specific session + its WP user immediately (admin action).
+     * Delete a specific session + user immediately (admin Delete button).
+     *
+     * @param int $session_id
      */
-    public static function delete_session_now( int $session_id ): void {
+    public static function delete_session_now( $session_id ) {
         global $wpdb;
         $session = $wpdb->get_row( $wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}" . CCDEMO_TABLE . " WHERE id = %d",
-            $session_id
+            "SELECT id, user_id FROM {$wpdb->prefix}" . CCDEMO_TABLE . " WHERE id = %d LIMIT 1",
+            (int) $session_id
         ) );
 
         if ( ! $session ) {
@@ -107,15 +127,20 @@ class CCDemo_Cron {
             self::delete_demo_user( (int) $session->user_id );
         }
 
-        CCDemo_DB::delete_session( $session_id );
+        CCDemo_DB::delete_session( (int) $session->id );
     }
 
-    private static function log( string $message ): void {
+    /* ------------------------------------------------------------------
+     * Logging
+     * ------------------------------------------------------------------ */
+
+    private static function log( $msg ) {
         if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
-            error_log( '[CCDemo] ' . $message );
+            error_log( '[CCDemo][Cron] ' . $msg );
         }
     }
 }
 
-// Hook the cron callback even after activation (every request that fires cron)
-add_action( CCDemo_Cron::HOOK, [ 'CCDemo_Cron', 'cleanup_expired' ] );
+// Hook is registered at file-load time so it fires on any WP request, not just
+// the ones that go through plugins_loaded → CCDemo_Auth etc.
+add_action( CCDemo_Cron::HOOK, array( 'CCDemo_Cron', 'cleanup_expired' ) );

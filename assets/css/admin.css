@@ -2,10 +2,35 @@
 
 .ccdemo-admin-wrap { max-width: 1200px; }
 
+/* Mode badges */
+.ccdemo-mode-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 600;
+    vertical-align: middle;
+    margin-left: 6px;
+}
+.badge-form { background: #dbeafe; color: #1d4ed8; }
+.badge-demo { background: #d1fae5; color: #065f46; }
+
+/* Connection status card */
+.ccdemo-connection-card {
+    padding: 14px 18px;
+    border-radius: 8px;
+    margin: 16px 0 24px;
+    font-size: 14px;
+    border: 1px solid transparent;
+}
+.card-ok   { background: #f0fdf4; border-color: #86efac; color: #14532d; }
+.card-warn { background: #fffbeb; border-color: #fcd34d; color: #78350f; }
+.ccdemo-connection-card code { font-size: 13px; }
+
 /* Stats bar */
 .ccdemo-stats {
     display: flex;
-    gap: 16px;
+    gap: 14px;
     margin: 16px 0 24px;
     flex-wrap: wrap;
 }
@@ -14,41 +39,46 @@
     background: #fff;
     border: 1px solid #e5e7eb;
     border-radius: 8px;
-    padding: 16px 24px;
+    padding: 14px 22px;
     text-align: center;
-    min-width: 90px;
+    min-width: 88px;
+    color: #6b7280;
+    font-size: 13px;
 }
 
 .ccdemo-stat span {
     display: block;
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 700;
     color: #111827;
     line-height: 1;
     margin-bottom: 4px;
 }
 
-.ccdemo-stat { color: #6b7280; font-size: 13px; }
 .stat-active  span { color: #16a34a; }
 .stat-pending span { color: #d97706; }
 .stat-expired span { color: #9ca3af; }
 
-/* Badge pills */
+/* Status badge pills */
 .ccdemo-badge {
     display: inline-block;
     padding: 2px 10px;
     border-radius: 99px;
     font-size: 12px;
     font-weight: 600;
+    white-space: nowrap;
 }
-
 .badge-active  { background: #dcfce7; color: #16a34a; }
 .badge-pending { background: #fef9c3; color: #ca8a04; }
 .badge-expired { background: #f3f4f6; color: #9ca3af; }
 
-/* Expired row dim */
-.ccdemo-row-expired td { opacity: .55; }
+/* Expired row */
+.ccdemo-row-expired td { opacity: .52; }
 
 /* Sessions table */
 .ccdemo-sessions-table th,
-.ccdemo-sessions-table td { vertical-align: top; padding: 10px 12px; }
+.ccdemo-sessions-table td {
+    vertical-align: top;
+    padding: 10px 12px;
+    font-size: 13px;
+}

@@ -1,189 +1,251 @@
 <?php
+/**
+ * Magic-link authentication — runs on demo subdomains. Compatible with PHP 7.4+.
+ */
 defined( 'ABSPATH' ) || exit;
 
 class CCDemo_Auth {
 
     public function __construct() {
-        // Intercept the magic link on every page load (before headers sent)
-        add_action( 'init', [ $this, 'maybe_authenticate' ], 1 );
-
-        // Register a lightweight custom role for demo users
-        add_action( 'init', [ $this, 'register_demo_role' ] );
-
-        // Block demo users from accessing the front-end — force them into the admin
-        add_action( 'template_redirect', [ $this, 'redirect_demo_user_to_admin' ] );
-
-        // Show an admin notice to demo users explaining the expiry
-        add_action( 'admin_notices', [ $this, 'demo_expiry_notice' ] );
-
-        // Remove admin bar links that a demo user shouldn't click
-        add_action( 'admin_bar_menu', [ $this, 'clean_admin_bar' ], 999 );
-
-        // Prevent demo users from accessing profile / password change
-        add_action( 'personal_options_update',  [ $this, 'block_profile_update' ] );
-        add_action( 'edit_user_profile_update', [ $this, 'block_profile_update' ] );
+        add_action( 'init',                  array( $this, 'register_demo_role' ) );
+        add_action( 'init',                  array( $this, 'maybe_authenticate' ), 1 );
+        add_action( 'template_redirect',     array( $this, 'redirect_demo_user_to_admin' ) );
+        add_action( 'admin_notices',         array( $this, 'demo_expiry_notice' ) );
+        add_action( 'admin_bar_menu',        array( $this, 'clean_admin_bar' ), 999 );
+        add_action( 'admin_menu',            array( $this, 'restrict_admin_menu' ), 999 );
+        add_action( 'personal_options_update',  array( $this, 'block_profile_update' ) );
+        add_action( 'edit_user_profile_update', array( $this, 'block_profile_update' ) );
+        add_filter( 'rest_authentication_errors', array( $this, 'restrict_rest_for_demo' ) );
+        add_filter( 'show_password_fields', array( $this, 'hide_password_fields' ) );
     }
 
     /* ------------------------------------------------------------------
-     * Magic-link authentication
+     * Demo role
      * ------------------------------------------------------------------ */
 
-    public function maybe_authenticate(): void {
-        $token = sanitize_text_field( $_GET['ccdemo_token'] ?? '' );
-        if ( empty( $token ) ) {
+    public function register_demo_role() {
+        if ( get_role( 'ccdemo_user' ) ) {
             return;
+        }
+        $caps = apply_filters( 'ccdemo_role_caps', array( 'read' => true ) );
+        add_role( 'ccdemo_user', 'Demo User', $caps );
+    }
+
+    /* ------------------------------------------------------------------
+     * Magic-link login
+     * ------------------------------------------------------------------ */
+
+    public function maybe_authenticate() {
+        $token = isset( $_GET['ccdemo_token'] ) ? sanitize_text_field( wp_unslash( $_GET['ccdemo_token'] ) ) : '';
+
+        if ( empty( $token ) || strlen( $token ) !== 64 ) {
+            return;
+        }
+
+        if ( ! ctype_xdigit( $token ) ) {
+            wp_die( $this->error_html( 'Invalid Token', 'This demo link is malformed.' ), 'Invalid Token', array( 'response' => 400 ) );
         }
 
         $session = CCDemo_DB::get_session_by_token( $token );
 
         if ( ! $session ) {
-            wp_die( '<h2>Invalid Demo Link</h2><p>This demo link is not recognised. Please request a new one.</p>', 'Invalid Demo Link', [ 'response' => 403 ] );
+            wp_die( $this->error_html( 'Invalid Demo Link', 'This demo link was not recognised. Please request a new one.' ), 'Invalid Link', array( 'response' => 403 ) );
         }
 
-        // Check expiry
         if ( strtotime( $session->expires_at ) < time() ) {
-            wp_die( '<h2>Demo Expired</h2><p>This demo link has expired. Please request a new demo.</p>', 'Demo Expired', [ 'response' => 410 ] );
+            wp_die( $this->error_html( 'Demo Expired', 'This demo has expired. Please visit codeconfig.dev to request a new demo.' ), 'Demo Expired', array( 'response' => 410 ) );
         }
 
-        // Check status
-        if ( ! in_array( $session->status, [ 'pending', 'active' ], true ) ) {
-            wp_die( '<h2>Demo Unavailable</h2><p>This demo session is no longer available.</p>', 'Demo Unavailable', [ 'response' => 410 ] );
+        if ( ! in_array( $session->status, array( 'pending', 'active' ), true ) ) {
+            wp_die( $this->error_html( 'Demo Unavailable', 'This demo session is no longer available.' ), 'Unavailable', array( 'response' => 410 ) );
         }
 
-        $user = get_user_by( 'id', $session->user_id );
-        if ( ! $user ) {
-            wp_die( '<h2>Demo Account Not Found</h2><p>The demo account has been removed. Please request a new demo.</p>', 'Account Not Found', [ 'response' => 404 ] );
+        $user = get_user_by( 'id', (int) $session->user_id );
+        if ( ! $user || ! in_array( 'ccdemo_user', (array) $user->roles, true ) ) {
+            wp_die( $this->error_html( 'Account Not Found', 'The demo account was not found. Please request a new demo.' ), 'Not Found', array( 'response' => 404 ) );
         }
 
-        // Log the user in
-        wp_set_auth_cookie( $user->ID, false );
+        // Set auth cookie whose lifetime matches the demo session expiry.
+        // We use the auth_cookie_expiration filter so WordPress creates a
+        // proper session token internally — never pass the duration as the
+        // 4th argument (that slot is a token string, not a duration).
+        $cookie_expiry = max( 3600, strtotime( $session->expires_at ) - time() );
+        $target_uid    = $user->ID;
+
+        $expiry_filter = function ( $length, $filter_uid ) use ( $target_uid, $cookie_expiry ) {
+            return ( (int) $filter_uid === (int) $target_uid ) ? $cookie_expiry : $length;
+        };
+        add_filter( 'auth_cookie_expiration', $expiry_filter, 10, 2 );
+
         wp_set_current_user( $user->ID );
+        wp_set_auth_cookie( $user->ID, true ); // true = persistent cookie (uses filtered expiry)
 
-        // Mark session active + record access time
-        CCDemo_DB::update_session( (int) $session->id, [
+        remove_filter( 'auth_cookie_expiration', $expiry_filter, 10 );
+
+        // Fire standard wp_login so security/audit plugins know about the login
+        do_action( 'wp_login', $user->user_login, $user );
+
+        CCDemo_DB::update_session( (int) $session->id, array(
             'status'      => 'active',
             'accessed_at' => current_time( 'mysql' ),
-        ] );
+        ) );
 
-        // Redirect to the admin demo landing page
-        $redirect = apply_filters( 'ccdemo_login_redirect', admin_url( 'index.php?ccdemo=1' ), $session );
+        $redirect = apply_filters( 'ccdemo_login_redirect', admin_url( 'index.php?ccdemo=welcome' ), $session );
         wp_safe_redirect( $redirect );
         exit;
     }
 
     /* ------------------------------------------------------------------
-     * Custom role with read-only capabilities
+     * Force demo users to WP admin
      * ------------------------------------------------------------------ */
 
-    public function register_demo_role(): void {
-        if ( get_role( 'ccdemo_user' ) ) {
-            return;
-        }
-
-        $caps = apply_filters( 'ccdemo_role_caps', [
-            'read'                   => true,
-            'upload_files'           => false,
-            'edit_posts'             => false,
-            'delete_posts'           => false,
-            'publish_posts'          => false,
-            'edit_pages'             => false,
-            'manage_options'         => false,
-            'list_users'             => false,
-        ] );
-
-        add_role( 'ccdemo_user', 'Demo User', $caps );
-    }
-
-    /* ------------------------------------------------------------------
-     * Force demo users straight to WP Admin (no front-end browsing)
-     * ------------------------------------------------------------------ */
-
-    public function redirect_demo_user_to_admin(): void {
+    public function redirect_demo_user_to_admin() {
         if ( is_admin() || ! is_user_logged_in() ) {
             return;
         }
-
-        $user = wp_get_current_user();
-        if ( ! in_array( 'ccdemo_user', (array) $user->roles, true ) ) {
-            return;
+        if ( $this->current_user_is_demo() ) {
+            wp_safe_redirect( admin_url() );
+            exit;
         }
-
-        wp_safe_redirect( admin_url( 'index.php?ccdemo=1' ) );
-        exit;
     }
 
     /* ------------------------------------------------------------------
-     * Admin notice shown to the demo user inside WP Admin
+     * Admin notice
      * ------------------------------------------------------------------ */
 
-    public function demo_expiry_notice(): void {
-        if ( ! is_user_logged_in() ) {
+    public function demo_expiry_notice() {
+        if ( ! $this->current_user_is_demo() ) {
             return;
         }
 
-        $user = wp_get_current_user();
-        if ( ! in_array( 'ccdemo_user', (array) $user->roles, true ) ) {
-            return;
-        }
-
+        $user       = wp_get_current_user();
         $expires_at = get_user_meta( $user->ID, '_ccdemo_expires_at', true );
         $product    = get_user_meta( $user->ID, '_ccdemo_product', true );
-        $products   = CCDemo_Form::get_products();
-        $label      = $products[ $product ] ?? $product;
+        $products   = (array) get_option( 'ccdemo_products_v2', array() );
+        $label      = isset( $products[ $product ]['label'] ) ? $products[ $product ]['label'] : $product;
 
         if ( ! $expires_at ) {
             return;
         }
 
-        $diff_seconds = strtotime( $expires_at ) - time();
-        $diff_hours   = max( 0, round( $diff_seconds / HOUR_IN_SECONDS ) );
+        $left_sec  = strtotime( $expires_at ) - time();
+        $main_url  = esc_url( get_option( 'ccdemo_main_site_url', 'https://codeconfig.dev' ) );
 
-        if ( $diff_seconds <= 0 ) {
-            $time_left = 'expired';
-        } elseif ( $diff_hours < 24 ) {
-            $time_left = $diff_hours . ' hour(s)';
+        if ( $left_sec <= 0 ) {
+            $time_left = '<strong style="color:#dc2626;">expired</strong>';
+        } elseif ( $left_sec < DAY_IN_SECONDS ) {
+            $time_left = '<strong>' . round( $left_sec / HOUR_IN_SECONDS ) . ' hour(s)</strong>';
         } else {
-            $time_left = round( $diff_hours / 24 ) . ' day(s)';
+            $time_left = '<strong>' . round( $left_sec / DAY_IN_SECONDS ) . ' day(s)</strong>';
         }
 
         printf(
-            '<div class="notice notice-info" style="border-left-color:#4F46E5;">
-                <p>&#127881; <strong>Welcome to your %s demo!</strong>
-                This is a private, time-limited demo environment. It will be automatically deleted in <strong>%s</strong>.
-                </p>
+            '<div class="notice notice-info" style="border-left-color:#4F46E5;padding:12px 16px;">
+              <p>&#127881; <strong>Welcome to your %s demo!</strong>
+              This demo will be automatically removed in %s.
+              <a href="%s" style="margin-left:8px;">Request another demo &rarr;</a>
+              </p>
             </div>',
             esc_html( $label ),
-            esc_html( $time_left )
+            $time_left,
+            $main_url
         );
     }
 
     /* ------------------------------------------------------------------
-     * Clean admin bar for demo users
+     * Restrict admin menu
      * ------------------------------------------------------------------ */
 
-    public function clean_admin_bar( WP_Admin_Bar $bar ): void {
-        if ( ! is_user_logged_in() ) {
-            return;
-        }
-        $user = wp_get_current_user();
-        if ( ! in_array( 'ccdemo_user', (array) $user->roles, true ) ) {
+    public function restrict_admin_menu() {
+        if ( ! $this->current_user_is_demo() ) {
             return;
         }
 
-        $remove = [ 'new-content', 'comments', 'updates', 'edit' ];
-        foreach ( $remove as $node ) {
+        $allowed = apply_filters( 'ccdemo_allowed_menu_slugs', array( 'index.php' ) );
+
+        global $menu;
+        if ( ! is_array( $menu ) ) {
+            return;
+        }
+        foreach ( $menu as $item ) {
+            if ( isset( $item[2] ) && ! in_array( $item[2], $allowed, true ) ) {
+                remove_menu_page( $item[2] );
+            }
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * Clean admin bar
+     * ------------------------------------------------------------------ */
+
+    public function clean_admin_bar( $bar ) {
+        if ( ! $this->current_user_is_demo() ) {
+            return;
+        }
+        foreach ( array( 'new-content', 'comments', 'updates', 'edit', 'wp-logo', 'site-name' ) as $node ) {
             $bar->remove_node( $node );
         }
     }
 
     /* ------------------------------------------------------------------
-     * Block profile / password updates for demo users
+     * Block profile updates
      * ------------------------------------------------------------------ */
 
-    public function block_profile_update( int $user_id ): void {
-        $user = get_user_by( 'id', $user_id );
-        if ( $user && in_array( 'ccdemo_user', (array) $user->roles, true ) ) {
-            wp_die( 'Profile updates are disabled in the demo environment.', 'Demo Restriction', [ 'back_link' => true ] );
+    public function block_profile_update( $user_id ) {
+        if ( $this->user_is_demo( (int) $user_id ) ) {
+            wp_die( 'Profile updates are disabled in the demo environment.', 'Demo Restriction', array( 'back_link' => true ) );
         }
+    }
+
+    public function hide_password_fields( $show ) {
+        if ( is_user_logged_in() && $this->current_user_is_demo() ) {
+            return false;
+        }
+        return $show;
+    }
+
+    /* ------------------------------------------------------------------
+     * Block REST API for demo users
+     * ------------------------------------------------------------------ */
+
+    public function restrict_rest_for_demo( $errors ) {
+        if ( $errors || ! is_user_logged_in() || ! $this->current_user_is_demo() ) {
+            return $errors;
+        }
+
+        $route = isset( $GLOBALS['wp']->query_vars['rest_route'] ) ? $GLOBALS['wp']->query_vars['rest_route'] : '';
+        if ( strpos( $route, '/ccdemo/v1' ) === 0 ) {
+            return $errors; // allow own namespace
+        }
+
+        return new WP_Error( 'demo_rest_blocked', 'REST API is restricted in the demo environment.', array( 'status' => 403 ) );
+    }
+
+    /* ------------------------------------------------------------------
+     * Helpers
+     * ------------------------------------------------------------------ */
+
+    private function current_user_is_demo() {
+        return is_user_logged_in() && $this->user_is_demo( get_current_user_id() );
+    }
+
+    private function user_is_demo( $user_id ) {
+        $user = get_user_by( 'id', $user_id );
+        return $user && in_array( 'ccdemo_user', (array) $user->roles, true );
+    }
+
+    private function error_html( $title, $body ) {
+        $main_url  = esc_url( get_option( 'ccdemo_main_site_url', 'https://codeconfig.dev' ) );
+        $primary   = '#4F46E5';
+        return sprintf(
+            '<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f9fafb}
+            .box{background:#fff;border-radius:12px;padding:40px 48px;max-width:480px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+            h2{color:#111827;margin:0 0 12px}p{color:#6b7280;line-height:1.6}a{color:%s;font-weight:600}</style>
+            <div class="box"><h2>%s</h2><p>%s</p><a href="%s">Request a new demo &rarr;</a></div>',
+            $primary,
+            esc_html( $title ),
+            esc_html( $body ),
+            $main_url
+        );
     }
 }
