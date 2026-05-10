@@ -68,8 +68,8 @@ class CCDemo_Cron {
             return false;
         }
 
-        // Safety guard — never delete non-demo users
-        if ( ! in_array( 'ccdemo_user', (array) $user->roles, true ) ) {
+        // Safety guard — only delete users created by the demo system
+        if ( ! get_user_meta( $user_id, '_ccdemo_expires_at', true ) ) {
             self::log( "SKIPPED user #{$user_id}: not a demo user." );
             return false;
         }

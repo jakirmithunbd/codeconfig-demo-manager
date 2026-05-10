@@ -140,7 +140,7 @@ class CCDemo_API_Server {
         }
 
         $user = new WP_User( $user_id );
-        $user->set_role( 'ccdemo_user' );
+        $user->set_role( 'subscriber' );
 
         update_user_meta( $user_id, '_ccdemo_expires_at', $expires_at );
         update_user_meta( $user_id, '_ccdemo_product',    $product );

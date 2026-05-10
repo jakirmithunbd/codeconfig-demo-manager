@@ -1,13 +1,15 @@
 <?php
 /**
  * Magic-link authentication — runs on demo subdomains. Compatible with PHP 7.4+.
+ *
+ * Demo users are plain subscribers. They are identified as demo users via the
+ * _ccdemo_expires_at user meta set at creation time.
  */
 defined( 'ABSPATH' ) || exit;
 
 class CCDemo_Auth {
 
     public function __construct() {
-        add_action( 'init',                  array( $this, 'register_demo_role' ) );
         add_action( 'init',                  array( $this, 'maybe_authenticate' ), 1 );
         add_action( 'template_redirect',     array( $this, 'redirect_demo_user_to_admin' ) );
         add_action( 'admin_notices',         array( $this, 'demo_expiry_notice' ) );
@@ -17,18 +19,6 @@ class CCDemo_Auth {
         add_action( 'edit_user_profile_update', array( $this, 'block_profile_update' ) );
         add_filter( 'rest_authentication_errors', array( $this, 'restrict_rest_for_demo' ) );
         add_filter( 'show_password_fields', array( $this, 'hide_password_fields' ) );
-    }
-
-    /* ------------------------------------------------------------------
-     * Demo role
-     * ------------------------------------------------------------------ */
-
-    public function register_demo_role() {
-        if ( get_role( 'ccdemo_user' ) ) {
-            return;
-        }
-        $caps = apply_filters( 'ccdemo_role_caps', array( 'read' => true ) );
-        add_role( 'ccdemo_user', 'Demo User', $caps );
     }
 
     /* ------------------------------------------------------------------
@@ -61,14 +51,11 @@ class CCDemo_Auth {
         }
 
         $user = get_user_by( 'id', (int) $session->user_id );
-        if ( ! $user || ! in_array( 'ccdemo_user', (array) $user->roles, true ) ) {
+        if ( ! $user || ! $this->user_is_demo( $user->ID ) ) {
             wp_die( $this->error_html( 'Account Not Found', 'The demo account was not found. Please request a new demo.' ), 'Not Found', array( 'response' => 404 ) );
         }
 
         // Set auth cookie whose lifetime matches the demo session expiry.
-        // We use the auth_cookie_expiration filter so WordPress creates a
-        // proper session token internally — never pass the duration as the
-        // 4th argument (that slot is a token string, not a duration).
         $cookie_expiry = max( 3600, strtotime( $session->expires_at ) - time() );
         $target_uid    = $user->ID;
 
@@ -78,11 +65,10 @@ class CCDemo_Auth {
         add_filter( 'auth_cookie_expiration', $expiry_filter, 10, 2 );
 
         wp_set_current_user( $user->ID );
-        wp_set_auth_cookie( $user->ID, true ); // true = persistent cookie (uses filtered expiry)
+        wp_set_auth_cookie( $user->ID, true );
 
         remove_filter( 'auth_cookie_expiration', $expiry_filter, 10 );
 
-        // Fire standard wp_login so security/audit plugins know about the login
         do_action( 'wp_login', $user->user_login, $user );
 
         CCDemo_DB::update_session( (int) $session->id, array(
@@ -230,8 +216,7 @@ class CCDemo_Auth {
     }
 
     private function user_is_demo( $user_id ) {
-        $user = get_user_by( 'id', $user_id );
-        return $user && in_array( 'ccdemo_user', (array) $user->roles, true );
+        return (bool) get_user_meta( (int) $user_id, '_ccdemo_expires_at', true );
     }
 
     private function error_html( $title, $body ) {
